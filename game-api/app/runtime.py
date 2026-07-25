@@ -77,11 +77,14 @@ def is_active(state: dict, pid: str) -> bool:
     return pid != state.get("wordSetterId")
 
 
-def players_public(state: dict) -> list[dict]:
+def players_public(state: dict, reveal_scores: bool = False) -> list[dict]:
+    """Liste des joueurs. Les scores ne sont divulgués qu'en fin de partie
+    (le « % de gain » n'apparaît qu'à la fin)."""
     out = []
     for p in state["players"].values():
         out.append({
-            "id": p["id"], "pseudo": p["pseudo"], "score": round(p.get("score", 0.0), 4),
+            "id": p["id"], "pseudo": p["pseudo"],
+            "score": round(p.get("score", 0.0), 4) if reveal_scores else None,
             "connected": p.get("connected", False),
             "isHost": p["id"] == state.get("hostId"),
             "isSetter": p["id"] == state.get("wordSetterId"),
@@ -90,23 +93,26 @@ def players_public(state: dict) -> list[dict]:
 
 
 def public_state(state: dict) -> dict:
-    """Instantané destiné au client. Le mot cible n'apparaît que si FINISHED."""
+    """Instantané destiné au client. Le mot cible et les scores n'apparaissent
+    qu'en fin de partie (FINISHED)."""
+    finished = state["status"] == "FINISHED"
     return {
         "code": state["code"],
         "mode": state["mode"],
         "level": state["level"],
+        "theme": state.get("theme"),
         "status": state["status"],
         "currentRound": state["currentRound"],
         "totalRounds": state["totalRounds"],
         "hostId": state.get("hostId"),
         "wordSetterId": state.get("wordSetterId"),
         "hasTarget": bool(state.get("targetWord")),
-        "players": players_public(state),
+        "players": players_public(state, reveal_scores=finished),
         "history": state.get("history", []),
-        "ranking": compute_ranking(state["players"]),
+        # classement (avec scores) uniquement à la fin :
+        "ranking": compute_ranking(state["players"]) if finished else None,
         "roundDeadline": state.get("roundDeadline"),
-        # jamais avant FINISHED (brief §2.6, §4.2) :
-        "targetWord": state["targetWord"] if state["status"] == "FINISHED" else None,
+        "targetWord": state["targetWord"] if finished else None,
     }
 
 
@@ -121,13 +127,14 @@ class GameManager:
         return self._runtimes.setdefault(code, RoomRuntime())
 
     # ------------------------------------------------------------- création
-    async def create_room(self, mode: str, level: str) -> str:
+    async def create_room(self, mode: str, level: str, theme: str | None = None) -> str:
         mode = mode.upper()
         level = level.upper()
         if mode not in ("SYSTEM", "PLAYER"):
             raise ValueError("mode invalide")
         if level not in config.ROUNDS_BY_LEVEL:
             raise ValueError("niveau invalide")
+        theme = (theme or "ALEATOIRE").upper()
         for _ in range(20):
             code = new_room_code()
             if not await self.store.exists(code):
@@ -135,13 +142,14 @@ class GameManager:
         else:
             raise RuntimeError("impossible de générer un code unique")
         state = {
-            "code": code, "mode": mode, "level": level,
+            "code": code, "mode": mode, "level": level, "theme": theme,
             "totalRounds": config.ROUNDS_BY_LEVEL[level], "currentRound": 0,
             "status": "LOBBY", "targetWord": None, "wordSetterId": None, "hostId": None,
             "players": {}, "roundBuffer": {}, "history": [], "roundDeadline": None,
+            "winnerFound": False,
         }
         await self.store.create(state)
-        log.info("Salon %s créé (mode=%s niveau=%s)", code, mode, level)
+        log.info("Salon %s créé (mode=%s niveau=%s thème=%s)", code, mode, level, theme)
         return code
 
     # --------------------------------------------------------------- join
@@ -189,7 +197,8 @@ class GameManager:
 
     def _lobby(self, state: dict) -> dict:
         return {"players": players_public(state), "mode": state["mode"],
-                "level": state["level"], "status": state["status"],
+                "level": state["level"], "theme": state.get("theme"),
+                "status": state["status"],
                 "hostId": state.get("hostId"), "wordSetterId": state.get("wordSetterId"),
                 "hasTarget": bool(state.get("targetWord")),
                 "totalRounds": state["totalRounds"]}
@@ -234,7 +243,8 @@ class GameManager:
 
             # Choix / préparation du mot cible.
             if state["mode"] == "SYSTEM":
-                state["targetWord"] = await self.semantic.random_word(state["level"])
+                state["targetWord"] = await self.semantic.random_word(
+                    state["level"], state.get("theme"))
             try:
                 rt.pmap = await self.semantic.percentiles(state["targetWord"])
             except Exception as e:
@@ -317,7 +327,10 @@ class GameManager:
 
     # --------------------------------------------------------- reveal round
     async def _reveal_locked(self, code: str, state: dict, rt: RoomRuntime):
-        """Révèle la manche (verrou tenu). Applique le scoring, diffuse, enchaîne."""
+        """Révèle la manche (verrou tenu) : affiche toutes les propositions et leur
+        pourcentage de proximité. Le scoring est calculé côté serveur mais N'EST PAS
+        diffusé (le « % de gain » n'apparaît qu'à la fin). N'enchaîne pas : c'est
+        l'hôte qui lance la manche suivante (on_next_round)."""
         if state["status"] != "RUNNING":
             return
         state["status"] = "REVEALING"
@@ -333,45 +346,46 @@ class GameManager:
         # Ordre d'affichage : meilleur pourcentage en tête.
         entries.sort(key=lambda e: e["percentile"], reverse=True)
 
+        # Scoring appliqué en interne pour le total final, mais NON divulgué ici.
         round_points = score_round(
             [{"playerId": e["playerId"], "percentile": e["percentile"],
               "isTarget": e["isTarget"]} for e in entries])
         apply_round_scores(state["players"], round_points)
 
-        for e in entries:
-            e["roundPoints"] = round(round_points.get(e["playerId"], 0.0), 4)
+        for e in entries:  # historique : mot + proximité, sans points
             state["history"].append({"round": round_no, "playerId": e["playerId"],
                                      "pseudo": e["pseudo"], "word": e["word"],
                                      "percentile": e["percentile"], "isTarget": e["isTarget"]})
         state["roundBuffer"] = {}
         has_winner = round_has_winner(entries)
+        if has_winner:
+            state["winnerFound"] = True
+        is_last = round_no >= state["totalRounds"]
         await self.store.save(state)
 
         await self.cm.broadcast(code, {
             "type": "roundRevealed", "round": round_no,
             "totalRounds": state["totalRounds"], "entries": entries,
-            "hasWinner": has_winner,
-            "players": players_public(state),
-            "ranking": compute_ranking(state["players"]),
+            "hasWinner": has_winner, "isLast": is_last,
+            # « game over » = fin de partie à la prochaine action de l'hôte.
+            "gameOver": has_winner or is_last,
+            "players": players_public(state),  # scores masqués (None) tant que pas FINISHED
         })
         log.info("Salon %s : manche %d révélée (%d propositions, gagnant=%s)",
                  code, round_no, len(entries), has_winner)
 
-        if has_winner or round_no >= state["totalRounds"]:
-            await self._finish(code, state)
-        else:
-            rt.advance_task = asyncio.create_task(self._advance_after_pause(code, round_no))
-
-    async def _advance_after_pause(self, code: str, prev_round: int):
-        try:
-            await asyncio.sleep(config.REVEAL_PAUSE_SECONDS)
-        except asyncio.CancelledError:
-            return
+    async def on_next_round(self, code: str, pid: str):
+        """L'hôte lance la manche suivante (ou termine la partie)."""
         rt = self.runtime(code)
         async with rt.lock:
             state = await self.store.get(code)
-            if (state and state["status"] == "REVEALING"
-                    and state["currentRound"] == prev_round):
+            if state is None or state["status"] != "REVEALING":
+                return await self._err(code, pid, "Aucune manche à valider maintenant.")
+            if pid != state["hostId"]:
+                return await self._err(code, pid, "Seul l'hôte lance la manche suivante.")
+            if state.get("winnerFound") or state["currentRound"] >= state["totalRounds"]:
+                await self._finish(code, state)
+            else:
                 await self._start_round(code, state, rt)
 
     async def _finish(self, code: str, state: dict):

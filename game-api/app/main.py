@@ -63,6 +63,7 @@ def mgr() -> GameManager:
 class CreateRoomRequest(BaseModel):
     mode: str = Field(..., pattern="^(SYSTEM|PLAYER|system|player)$")
     level: str = Field(..., pattern="^(FACILE|NORMAL|DIFFICILE|facile|normal|difficile)$")
+    theme: str | None = None
 
 
 class CreateRoomResponse(BaseModel):
@@ -89,10 +90,19 @@ async def get_config():
 @app.post("/api/rooms", response_model=CreateRoomResponse)
 async def create_room(req: CreateRoomRequest):
     try:
-        code = await mgr().create_room(req.mode, req.level)
+        code = await mgr().create_room(req.mode, req.level, req.theme)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return CreateRoomResponse(code=code)
+
+
+@app.get("/api/themes")
+async def get_themes():
+    """Liste des thèmes de mots cibles (proxy du semantic-api)."""
+    try:
+        return {"themes": await _semantic.themes()}
+    except Exception as e:
+        raise HTTPException(503, f"semantic-api injoignable : {e}")
 
 
 @app.get("/api/rooms/{code}")
@@ -157,6 +167,8 @@ async def ws_endpoint(ws: WebSocket, code: str):
                 await gm.on_start(code, player_id)
             elif mtype == "submitGuess":
                 await gm.on_submit(code, player_id, msg.get("word", ""))
+            elif mtype == "nextRound":
+                await gm.on_next_round(code, player_id)
             elif mtype == "leave":
                 break
             else:

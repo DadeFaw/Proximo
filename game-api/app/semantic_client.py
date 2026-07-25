@@ -36,7 +36,15 @@ class SemanticClient:
         r.raise_for_status()
         return r.json()["percentiles"]
 
-    async def random_word(self, level: str) -> str:
-        r = await self._client.get("/random-word", params={"level": level})
+    async def random_word(self, level: str, theme: str | None = None) -> str:
+        params = {"level": level}
+        if theme:
+            params["theme"] = theme
+        r = await self._client.get("/random-word", params=params)
         r.raise_for_status()
         return r.json()["word"]
+
+    async def themes(self) -> list[dict]:
+        r = await self._client.get("/themes")
+        r.raise_for_status()
+        return r.json()["themes"]

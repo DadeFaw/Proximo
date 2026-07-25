@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
+from .themes import THEMES
 
 log = logging.getLogger("semantic.engine")
 
@@ -69,6 +70,8 @@ class SemanticEngine:
 
         # Pools de tirage par niveau (uniquement des noms communs), pré-calculés.
         self._level_pools = self._build_level_pools()
+        # Pools de tirage par thème (mots du thème réellement présents au vocabulaire).
+        self.theme_pools = self._build_theme_pools()
         # Petit cache LRU-léger des cartes de percentiles (utile pour /score en test).
         self._pct_cache: dict[str, dict[str, float]] = {}
         log.info(
@@ -100,7 +103,33 @@ class SemanticEngine:
             "DIFFICILE": [self.words[i] for i in difficile] or [self.words[i] for i in normal],
         }
 
-    def random_word(self, level: str) -> str:
+    def _build_theme_pools(self) -> dict[str, list[str]]:
+        """Filtre chaque thème aux mots présents dans le vocabulaire."""
+        pools: dict[str, list[str]] = {}
+        for key, data in THEMES.items():
+            if key == "ALEATOIRE":
+                continue
+            valid = [w for w in data["words"] if w in self.word2idx]
+            if len(valid) >= 5:
+                pools[key] = valid
+            else:
+                log.warning("Thème %s ignoré (%d mots valides seulement)", key, len(valid))
+        return pools
+
+    def list_themes(self) -> list[dict]:
+        """Liste des thèmes disponibles (pour le client)."""
+        out = [{"key": "ALEATOIRE", "label": THEMES["ALEATOIRE"]["label"],
+                "emoji": THEMES["ALEATOIRE"]["emoji"], "count": 0}]
+        for key, pool in self.theme_pools.items():
+            out.append({"key": key, "label": THEMES[key]["label"],
+                        "emoji": THEMES[key]["emoji"], "count": len(pool)})
+        return out
+
+    def random_word(self, level: str, theme: str | None = None) -> str:
+        """Tire un mot cible. Si un thème valide est fourni, tire dedans ;
+        sinon tirage par niveau de difficulté."""
+        if theme and theme.upper() in self.theme_pools:
+            return random.choice(self.theme_pools[theme.upper()])
         pool = self._level_pools.get(level.upper(), self._level_pools["NORMAL"])
         return random.choice(pool)
 

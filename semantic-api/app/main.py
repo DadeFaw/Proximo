@@ -21,7 +21,7 @@ from .engine import SemanticEngine, load_engine
 from .schemas import (
     HealthResponse, NormalizeRequest, NormalizeResponse, PercentilesRequest,
     PercentilesResponse, RandomWordResponse, ScoreRequest, ScoreResponse,
-    ValidateTargetRequest, ValidateTargetResponse,
+    ThemesResponse, ValidateTargetRequest, ValidateTargetResponse,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -91,12 +91,19 @@ def score(req: ScoreRequest):
 
 
 @app.get("/random-word", response_model=RandomWordResponse)
-def random_word(level: str = Query("NORMAL")):
-    """Tire un mot cible dans le lexique filtré par niveau (mode SYSTEM)."""
+def random_word(level: str = Query("NORMAL"), theme: str | None = Query(None)):
+    """Tire un mot cible : dans le thème choisi si fourni, sinon par niveau."""
     lvl = level.upper()
     if lvl not in LEVELS:
         raise HTTPException(422, f"Niveau inconnu : {level}")
-    return RandomWordResponse(word=engine().random_word(lvl), level=lvl)
+    word = engine().random_word(lvl, theme)
+    return RandomWordResponse(word=word, level=lvl, theme=theme)
+
+
+@app.get("/themes", response_model=ThemesResponse)
+def themes():
+    """Liste des thèmes disponibles pour le tirage du mot cible."""
+    return ThemesResponse(themes=engine().list_themes())
 
 
 if __name__ == "__main__":

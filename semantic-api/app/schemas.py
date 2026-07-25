@@ -52,6 +52,18 @@ class ScoreResponse(BaseModel):
 class RandomWordResponse(BaseModel):
     word: str
     level: str
+    theme: str | None = None
+
+
+class ThemeInfo(BaseModel):
+    key: str
+    label: str
+    emoji: str
+    count: int
+
+
+class ThemesResponse(BaseModel):
+    themes: list[ThemeInfo]
 
 
 class HealthResponse(BaseModel):

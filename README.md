@@ -52,16 +52,20 @@ python -m spacy download fr_core_news_md
 ## 2. Comment jouer
 
 1. **Créer une partie** : choisir le mode (`Le système` tire le mot / `Un joueur`
-   le saisit) et le niveau (`Facile` 10 manches / `Normal` 6 / `Difficile` 3).
+   le saisit), le **thème** du mot cible (Animaux, Nourriture, Nature… ou Aléatoire)
+   et le niveau (`Facile` 10 manches / `Normal` 6 / `Difficile` 3).
 2. **Partager** le code à 6 caractères ou faire **scanner le QR**. Chaque joueur
    rejoint depuis son appareil.
 3. En mode `Un joueur`, l'hôte **saisit et valide** le mot cible (nom commun, connu
    du dictionnaire) — il ne devine pas cette partie.
 4. L'hôte **lance**. À chaque manche : **25 s**, une seule proposition par joueur.
-   À l'expiration (ou dès que tout le monde a proposé), **toutes** les propositions
-   et **tous** les scores sont révélés simultanément.
-5. La partie s'arrête quand quelqu'un trouve la cible, ou au bout des N manches.
-   Deux vues : **Classement** (au cumul) et **Chronologique**.
+   À l'expiration (ou dès que tout le monde a proposé), **toutes les propositions et
+   leur pourcentage de proximité sémantique** sont révélés simultanément.
+5. Entre les manches, c'est **l'hôte qui lance la manche suivante** (bouton
+   « Manche suivante → »). Les **points/classement restent cachés** pendant la partie.
+6. La partie s'arrête quand quelqu'un trouve la cible, ou au bout des N manches.
+   Alors seulement le **classement au cumul** (« 🏆 Voir les résultats ») et le mot
+   cible sont dévoilés. Deux vues finales : **Classement** et **Chronologique**.
 
 ---
 

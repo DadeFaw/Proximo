@@ -96,10 +96,11 @@ function Timer({ deadline, duration }) {
 }
 
 /* ------------------------------------------------------------------ écrans */
-function Home({ prefillCode, onCreate, onJoin, error }) {
+function Home({ prefillCode, onCreate, onJoin, error, themes }) {
   const [pseudo, setPseudo] = useState(localStorage.getItem('proximo:pseudo') || '');
   const [mode, setMode] = useState('SYSTEM');
   const [level, setLevel] = useState('FACILE');
+  const [theme, setTheme] = useState('ALEATOIRE');
   const [code, setCode] = useState(prefillCode || '');
   useEffect(() => { if (prefillCode) setCode(prefillCode); }, [prefillCode]);
   const remember = (p) => { setPseudo(p); localStorage.setItem('proximo:pseudo', p); };
@@ -120,13 +121,22 @@ function Home({ prefillCode, onCreate, onJoin, error }) {
         <button class=${mode === 'PLAYER' ? 'active' : ''} onClick=${() => setMode('PLAYER')}>
           Un joueur<small>l'hôte saisit le mot</small></button>
       </div>
+      ${mode === 'SYSTEM' ? html`
+        <label>Thème du mot cible</label>
+        <div class="seg" style="gap:6px">
+          ${(themes && themes.length ? themes : [{ key: 'ALEATOIRE', label: 'Aléatoire', emoji: '🎲' }]).map((t) => html`
+            <button key=${t.key} class=${theme === t.key ? 'active' : ''}
+                    style="flex:0 0 auto;min-width:auto;padding:8px 12px;font-size:13px"
+                    onClick=${() => setTheme(t.key)}>${t.emoji} ${t.label}</button>`)}
+        </div>` : ''}
       <label>Niveau</label>
       <div class="seg">
         ${Object.entries(LEVELS).map(([k, v]) => html`
           <button class=${level === k ? 'active' : ''} onClick=${() => setLevel(k)}>
             ${k[0] + k.slice(1).toLowerCase()}<small>${v.rounds} manches</small></button>`)}
       </div>
-      <button class="btn" disabled=${!pseudo.trim()} onClick=${() => onCreate({ mode, level, pseudo: pseudo.trim() })}>
+      <button class="btn" disabled=${!pseudo.trim()}
+              onClick=${() => onCreate({ mode, level, theme: mode === 'SYSTEM' ? theme : null, pseudo: pseudo.trim() })}>
         Créer le salon →</button>
     </div>
 
@@ -145,12 +155,13 @@ function Home({ prefillCode, onCreate, onJoin, error }) {
   `;
 }
 
-function Lobby({ st, code, youId, isHost, send, onLeave }) {
+function Lobby({ st, code, youId, isHost, send, onLeave, themes }) {
   const [target, setTarget] = useState('');
   const players = st.players || [];
   const canStart = players.length >= 2 && (st.mode === 'SYSTEM' || st.hasTarget);
   const meSetter = st.mode === 'PLAYER' && isHost;
   const joinUrl = `${location.origin}/?code=${code}`;
+  const themeInfo = (themes || []).find((t) => t.key === st.theme);
 
   return html`
     <div class="card center">
@@ -166,7 +177,7 @@ function Lobby({ st, code, youId, isHost, send, onLeave }) {
 
     <div class="card">
       <h2>Joueurs (${players.length})</h2>
-      <div class="muted small">Mode ${st.mode === 'SYSTEM' ? 'système' : 'joueur'} · niveau ${st.level?.toLowerCase()} · ${st.totalRounds} manches</div>
+      <div class="muted small">Mode ${st.mode === 'SYSTEM' ? 'système' : 'joueur'} · niveau ${st.level?.toLowerCase()} · ${st.totalRounds} manches${st.mode === 'SYSTEM' && themeInfo && themeInfo.key !== 'ALEATOIRE' ? ` · thème ${themeInfo.emoji} ${themeInfo.label}` : ''}</div>
       <ul class="players">${players.map((p) => html`
         <li key=${p.id}>
           <span class=${'dot' + (p.connected ? '' : ' off')}></span>
@@ -231,25 +242,33 @@ function RoundView({ st, roundInfo, youId, myGuess, send }) {
     </div>
 
     <div class="card">
-      <h2>Classement en cours</h2>
-      <${Ranking} ranking=${st.ranking} youId=${youId} />
+      <h2>Joueurs</h2>
+      <ul class="players">${(st.players || []).map((p) => html`
+        <li key=${p.id}>
+          <span class=${'dot' + (p.connected ? '' : ' off')}></span>
+          <span>${p.pseudo}${p.id === youId ? ' · toi' : ''}</span>
+          ${p.isSetter ? html`<span class="pill setter">maître du mot</span>` : ''}
+        </li>`)}</ul>
+      <p class="muted small">🏆 Le classement et les points sont dévoilés à la fin de la partie.</p>
     </div>
   `;
 }
 
-function RevealView({ reveal, youId, st }) {
+function RevealView({ reveal, youId, isHost, send }) {
+  const over = reveal.gameOver;
   return html`
     <div class="card">
       <div class="roundhead"><strong>Manche ${reveal.round} / ${reveal.totalRounds} — révélation</strong>
         ${reveal.hasWinner ? html`<span class="r" style="color:var(--green)">cible trouvée ! 🎯</span>` : ''}</div>
+      <p class="muted small">Toutes les propositions et leur proximité sémantique avec le mot cible :</p>
       ${reveal.entries.length ? reveal.entries.map((e) => html`<${EntryRow} e=${e} youId=${youId} />`)
         : html`<p class="muted">Personne n'a proposé cette manche.</p>`}
     </div>
-    <div class="card">
-      <h2>Classement</h2>
-      <${Ranking} ranking=${reveal.ranking} youId=${youId} />
-    </div>
-    ${!reveal.hasWinner ? html`<div class="waiting"><div class="spinner"></div>Manche suivante…</div>` : ''}
+    ${isHost
+      ? html`<button class=${'btn' + (over ? ' amber' : '')} onClick=${() => send('nextRound', {})}>
+          ${over ? '🏆 Voir les résultats' : 'Manche suivante →'}</button>`
+      : html`<div class="waiting"><div class="spinner"></div>
+          En attente que l'hôte ${over ? 'dévoile les résultats' : 'lance la manche suivante'}…</div>`}
   `;
 }
 
@@ -284,6 +303,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [homeErr, setHomeErr] = useState('');
   const [gameTab, setGameTab] = useState('classement');
+  const [themes, setThemes] = useState([]);
 
   const ws = useRef(null);
   const intentional = useRef(false);
@@ -306,7 +326,7 @@ function App() {
       case 'roundRevealed':
         setReveal(m);
         setSt((prev) => ({
-          ...prev, status: 'REVEALING', ranking: m.ranking, players: m.players || prev.players,
+          ...prev, status: 'REVEALING', players: m.players || prev.players,
           history: [...(prev.history || []), ...m.entries.map((e) => ({ ...e, round: m.round }))],
         }));
         break;
@@ -340,10 +360,10 @@ function App() {
     else flash('Connexion perdue, reconnexion…');
   }
 
-  async function onCreate({ mode, level, pseudo }) {
+  async function onCreate({ mode, level, theme, pseudo }) {
     setHomeErr('');
     try {
-      const { code } = await api('/api/rooms', { method: 'POST', body: JSON.stringify({ mode, level }) });
+      const { code } = await api('/api/rooms', { method: 'POST', body: JSON.stringify({ mode, level, theme }) });
       const sess = { code, pseudo, playerId: null, isHost: true };
       setSession(sess); setScreen('game'); connect(sess);
     } catch (e) { setHomeErr(e.message); }
@@ -363,6 +383,11 @@ function App() {
     setRoundInfo(null); setReveal(null); setFinished(null); setMyGuess(null);
   }
 
+  // Liste des thèmes (pour l'écran d'accueil).
+  useEffect(() => {
+    fetch('/api/themes').then((r) => r.json()).then((d) => setThemes(d.themes || [])).catch(() => {});
+  }, []);
+
   // Reconnexion automatique au chargement si une session avec playerId existe.
   useEffect(() => {
     const last = loadSession();
@@ -377,15 +402,15 @@ function App() {
 
   let body;
   if (screen === 'home') {
-    body = html`<${Home} prefillCode=${prefillCode} onCreate=${onCreate} onJoin=${onJoin} error=${homeErr} />`;
+    body = html`<${Home} prefillCode=${prefillCode} onCreate=${onCreate} onJoin=${onJoin} error=${homeErr} themes=${themes} />`;
   } else if (finished || st.status === 'FINISHED') {
     body = html`<${Finished} finished=${finished || { targetWord: st.targetWord, ranking: st.ranking, history: st.history }} youId=${youId} onLeave=${doLeave} />`;
   } else if (st.status === 'REVEALING' && reveal) {
-    body = html`<${RevealView} reveal=${reveal} youId=${youId} st=${st} />`;
+    body = html`<${RevealView} reveal=${reveal} youId=${youId} isHost=${isHost} send=${send} />`;
   } else if (st.status === 'RUNNING') {
     body = html`<${RoundView} st=${st} roundInfo=${roundInfo} youId=${youId} myGuess=${myGuess} send=${send} />`;
   } else {
-    body = html`<${Lobby} st=${st} code=${session?.code} youId=${youId} isHost=${isHost} send=${send} onLeave=${doLeave} />`;
+    body = html`<${Lobby} st=${st} code=${session?.code} youId=${youId} isHost=${isHost} send=${send} onLeave=${doLeave} themes=${themes} />`;
   }
 
   return html`
