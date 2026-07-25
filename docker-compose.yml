@@ -1,0 +1,40 @@
+# Déploiement complet : semantic-api + game-api + Redis.
+# Lancer :  docker compose up --build
+# Puis ouvrir http://localhost:8000
+services:
+  semantic-api:
+    build:
+      context: .
+      dockerfile: semantic-api/Dockerfile
+    environment:
+      - SEMANTIC_PORT=8100
+      # Pour utiliser un artefact élagué (frWac / cc.fr.300), monter un volume et
+      # décommenter :
+      # - ARTIFACT_DIR=/artifact
+    # volumes:
+    #   - ./semantic-api/artifact:/artifact:ro
+    expose:
+      - "8100"
+    restart: unless-stopped
+
+  game-api:
+    build:
+      context: .
+      dockerfile: game-api/Dockerfile
+    environment:
+      - SEMANTIC_API_URL=http://semantic-api:8100
+      - REDIS_URL=redis://redis:6379/0
+      - ROUND_SECONDS=25
+      # URL publique pour les QR codes (sinon dérivée de la requête) :
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - semantic-api
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped

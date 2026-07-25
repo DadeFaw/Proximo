@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.pyc
+**/.cache
+semantic-api/.cache
+semantic-api/artifact
+node_modules
+*.log
+.env
+README.md
+DEPLOY.md

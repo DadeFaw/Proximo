@@ -1,0 +1,18 @@
+# Blueprint Render — déploiement en un service Docker.
+# Sur https://dashboard.render.com : New + > Blueprint > choisir ce dépôt.
+# Render lit ce fichier, construit le Dockerfile et publie une URL HTTPS.
+services:
+  - type: web
+    name: proximo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free            # 512 Mo. Passez à "starter"/"standard" si mémoire insuffisante.
+    region: frankfurt     # au plus près des joueurs francophones
+    healthCheckPath: /api/health
+    autoDeploy: true      # redéploie à chaque push sur la branche par défaut
+    envVars:
+      - key: ROUND_SECONDS
+        value: "25"
+      # PORT est fourni automatiquement par Render (ne pas le fixer).
+      # PUBLIC_BASE_URL est déduit de l'URL de la requête (QR corrects).
