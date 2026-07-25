@@ -1,14 +1,14 @@
 # Blueprint Render — déploiement en un service Docker.
+# (Le déploiement principal se fait désormais sur Railway, cf. railway.json.)
 # Sur https://dashboard.render.com : New + > Blueprint > choisir ce dépôt.
-# Render lit ce fichier, construit le Dockerfile et publie une URL HTTPS.
 services:
   - type: web
     name: proximo
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: free            # 512 Mo. Attention : "starter" = 512 Mo aussi (n'aide pas).
-                          # Pour l'OOM, il faut "standard" (2 Go). Voir aussi railway.json.
+    plan: free            # 512 Mo. Attention : "starter" = 512 Mo aussi (n'aide pas l'OOM).
+                          # Sur Render, seul "standard" (2 Go, ~25$/mois) corrige l'OOM.
     region: frankfurt     # au plus près des joueurs francophones
     healthCheckPath: /api/health
     autoDeploy: true      # redéploie à chaque push sur la branche par défaut
