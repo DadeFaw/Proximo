@@ -7,7 +7,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: free            # 512 Mo. Passez à "starter"/"standard" si mémoire insuffisante.
+    plan: standard            # 512 Mo. Passez à "starter"/"standard" si mémoire insuffisante.
     region: frankfurt     # au plus près des joueurs francophones
     healthCheckPath: /api/health
     autoDeploy: true      # redéploie à chaque push sur la branche par défaut
